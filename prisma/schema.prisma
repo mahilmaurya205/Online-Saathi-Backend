@@ -1,0 +1,915 @@
+model Wallet {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  balance   Float    @default(0)
+  user      User     @relation(fields: [userId], references: [id])
+  transactions WalletTransaction[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WalletTransaction {
+  id        String   @id @default(uuid())
+  userId    String
+  amount    Float
+  type      String   // 'CREDIT' or 'DEBIT'
+  meta      Json?
+  user      User     @relation(fields: [userId], references: [id], map: "WalletTransaction_user_fkey")
+  wallet    Wallet?  @relation(fields: [userId], references: [userId], map: "WalletTransaction_wallet_fkey")
+  createdAt DateTime @default(now())
+}
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  domain    String   @unique
+  createdAt DateTime @default(now())
+  users     User[]
+  pricingSettings PricingSetting[]
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum Identity {
+  SUPER_ADMIN
+  ADMIN
+  SUB_ADMIN
+  COUNTRY_HEAD
+  STATE_HEAD
+  STATE_PARTNER
+  DISTRICT_PARTNER
+  AGENT
+  USER
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PricingKey {
+  USER_REGISTRATION
+  BUSINESS_PARTNER_REGISTRATION
+  MEMBER_UPGRADE
+  AGENT_SERVICE
+  JOB_PROFILE_FEE
+  JOB_PROFILE_WITH_RESUME_FEE
+  ROLE_UPGRADE_MEMBER
+  ROLE_UPGRADE_AGENT
+  JOB_POST_FEE
+  MEMBER_REGISTRATION_FEE
+  AGENT_REGISTRATION_FEE
+  MEMBER_TO_AGENT_UPGRADE_FEE
+}
+
+enum MemberStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  mobile       String   @unique
+  password     String
+  fullName     String
+  gender       Gender
+  dateOfBirth  DateTime
+  identity     Identity @default(USER)
+  approvalStatus ApprovalStatus @default(APPROVED)
+  requestedRole String?
+  approvedAt    DateTime?
+  tenantId     String
+  parentId     String?
+  createdBy    String?
+  referredBy   String?
+  referralCode String   @unique @default(uuid())
+  createdAt    DateTime @default(now())
+
+  parent       User?    @relation("UserHierarchy", fields: [parentId], references: [id])
+  children     User[]   @relation("UserHierarchy")
+
+  creator      User?    @relation("UserCreation", fields: [createdBy], references: [id])
+  createdUsers User[]   @relation("UserCreation")
+
+  referrer     User?    @relation("UserReferral", fields: [referredBy], references: [id])
+  referrals    User[]   @relation("UserReferral")
+
+  roles        UserRole[]
+  wallet        Wallet?
+  walletTransactions WalletTransaction[]
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  
+  // TASK 1: NEW RELATIONS
+  profile      UserProfile?
+  business     Business?
+  jobApplications JobApplication[]
+  schemeBookings  SchemeBooking[] // User's scheme bookings
+  saathiBookings  SchemeBooking[] @relation("SaathiBookings") // Bookings where user is Saathi
+  payments     Payment[]
+  membership   Member?
+  agentProfile Agent?
+  profileVerifications ProfileVerification[]
+  postedJobs   Job[] // Jobs posted by this user (Admin or Business Partner)
+  jobCredits   BusinessJobCredit? // Job posting credits for Business Partners
+
+  @@index([tenantId])
+  @@index([parentId])
+  @@index([createdBy])
+  @@index([referredBy])
+  @@index([referralCode])
+  @@index([approvalStatus])
+  @@index([requestedRole])
+}
+
+model PricingSetting {
+  id        String     @id @default(uuid())
+  tenantId  String
+  key       PricingKey
+  amount    Float
+  currency  String     @default("INR")
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@index([key])
+}
+
+model Role {
+  id          String           @id @default(uuid())
+  name        String           @unique
+  permissions RolePermission[]
+  users       UserRole[]
+}
+
+model Permission {
+  id              String           @id @default(uuid())
+  name            String           @unique
+  rolePermissions RolePermission[]
+}
+
+model RolePermission {
+  id           String     @id @default(uuid())
+  roleId       String
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id])
+  role         Role       @relation(fields: [roleId], references: [id])
+}
+
+model UserRole {
+  id     String @id @default(uuid())
+  userId String
+  roleId String
+  user   User   @relation(fields: [userId], references: [id])
+  role   Role   @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  targetId  String?
+  metadata  Json?
+  tenantId  String?
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([userId])
+}
+
+model PrabhuApiLog {
+  id             String   @id @default(uuid())
+  operation      String
+  integration    String
+  endpointPath   String
+  requestMethod  String
+  requestPayload Json?
+  responsePayload Json?
+  statusCode     Int?
+  success        Boolean  @default(false)
+  errorMessage   String?
+  errorPayload   Json?
+  userId         String?
+  tenantId       String?
+  ipAddress      String?
+  userAgent      String?
+  durationMs     Int?
+  createdAt      DateTime @default(now())
+
+  @@index([operation])
+  @@index([integration])
+  @@index([tenantId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model OtpCode {
+  id        String   @id @default(uuid())
+  mobile    String
+  otpHash   String
+  expiresAt DateTime
+  attempts  Int      @default(0)
+  isUsed    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([mobile])
+}
+
+model ImeData {
+  id               String   @id @default(uuid())
+  name             String
+  mobile           String
+  relationship     String
+  sendAmountInr    Float?
+  receiveAmountNpr Float?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([mobile])
+  @@index([createdAt])
+}
+
+// ============================================
+// TASK 1: NEW MODELS FOR JOB MATCHING SYSTEM
+// ============================================
+
+// User Job Profile - Skills, Experience, Location
+model UserProfile {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Personal Info
+  fullName        String?
+  phoneNumber     String?
+  email           String?
+  maritalStatus   String?  // Married, Unmarried
+  gender          String?  // Male, Female
+  dateOfBirth     DateTime?
+  languages       String[] // Hindi, English, Gujarati, Nepali, etc.
+  
+  // Current Address
+  currentCountry  String?
+  currentState    String?
+  currentDistrict String?
+  currentAddress  String?
+  currentPincode  String?
+  
+  // Permanent Address
+  permanentCountry  String?
+  permanentState    String?
+  permanentDistrict String?
+  permanentAddress  String?
+  permanentPincode  String?
+  
+  // Job Preferences
+  jobType         String?  // Daily wages, Part time, Full Time
+  jobRole         String?
+  jobRoleCategory String?
+  skills          String[] // Admin-defined skills
+  jobDescription  String?
+  
+  // Education (stored as JSON)
+  education       Json?    // [{ level, schoolName, degree, passingYear, percentage }]
+  
+  // Work Experience
+  totalExperience Int      @default(0) // Years
+  workExperience  Json?    // [{ jobRole, companyName, salary, yearsExp, country, city, startDate, endDate, currentlyWorking }]
+  
+  // Document Upload
+  documentType    String?  // Aadhar, Passport, Driving License, Voter Id
+  documentFront   String?  // Image URL/path
+  documentBack    String?  // Image URL/path
+  documentNumber  String?
+  
+  // Transaction Type & Profile Status
+  transactionType String?  // "ONLY_PROFILE" or "PROFILE_WITH_RESUME"
+  profileStatus   String   @default("PENDING") // PENDING, VERIFIED, REJECTED
+  profileFee      Float    @default(0)
+  paymentId       String?
+  verifiedBy      String?
+  verifiedAt      DateTime?
+  rejectionReason String?
+  
+  // Legacy fields (kept for compatibility)
+  title           String?
+  bio             String?
+  experience      Int      @default(0)
+  address         String?
+  city            String?
+  state           String?
+  country         String?
+  pincode         String?
+  preferredLocation String[]
+  preferredSalary   Float?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([skills])
+  @@index([currentState])
+  @@index([currentDistrict])
+  @@index([jobRole])
+  @@index([jobType])
+  @@index([profileStatus])
+}
+
+// Business/Company Profile
+model Business {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Company Details
+  companyName     String
+  registrationNo  String?
+  gstNumber       String?
+  
+  // Contact
+  email           String?
+  website         String?
+  
+  // Location
+  address         String
+  city            String
+  state           String
+  country         String @default("India")
+  pincode         String
+  
+  // Industry
+  industry        String?  // e.g., "IT", "Manufacturing"
+  companySize     String?  // e.g., "1-10", "11-50", "51-200"
+  
+  // Status
+  isVerified      Boolean  @default(false)
+  verifiedAt      DateTime?
+  
+  // Relations
+  jobs            Job[]
+  schemes         Scheme[]
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([city])
+  @@index([industry])
+  @@index([isVerified])
+}
+
+// Job Postings
+model Job {
+  id              String   @id @default(uuid())
+  businessId      String?
+  business        Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  
+  // Who posted the job (Admin or Business Partner)
+  postedById      String?
+  postedBy        User?    @relation(fields: [postedById], references: [id], onDelete: Cascade)
+  postedByRole    String?  // ADMIN or BUSINESS_PARTNER
+  
+  // JOB DETAILS
+  jobRole         String?  // Job role/title
+  jobDescription  String?  // Detailed description
+  requiredSkills  String[] // Required skills
+  
+  // BASIC JOB INFO
+  jobType         String?  // Daily Wages, Part Time, Full Time
+  payStructure    String?  // Daily Wages, Part Time, Full Time
+  offeredAmount   Float?   // Salary/wage offered
+  openings        Int      @default(1) // Number of openings
+  shift           String?  // Day, Night, Morning, Evening, Rotational
+  urgentHiring    Boolean  @default(false)
+  
+  // CANDIDATE REQUIREMENTS
+  education       String?  // Required education
+  experience      Int      @default(0) // Required experience in years
+  gender          String?  // Male, Female, Any
+  minAge          Int?
+  maxAge          Int?
+  country         String?
+  state           String?
+  district        String?
+  pincode         String?
+  fullAddress     String?
+  
+  // FACILITIES & FEES
+  weekOffDays     String?  // e.g., "Sunday", "Saturday-Sunday"
+  facilities      String[] // Selected facilities (admin-managed)
+  joiningFees     Boolean  @default(false) // Yes/No
+  contactName     String?
+  contactNumber   String?
+  
+  // Status
+  status          String   @default("ACTIVE") // ACTIVE, CLOSED, FILLED, PENDING_PAYMENT
+  
+  // For Business Partners - Payment tracking
+  paymentId       String?  // Payment reference for job posting fee
+  postingFee      Float    @default(0)
+  
+  // Relations
+  applications    JobApplication[]
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([postedById])
+  @@index([state])
+  @@index([district])
+  @@index([status])
+  @@index([jobType])
+  @@index([jobRole])
+}
+
+// Job Applications
+model JobApplication {
+  id              String   @id @default(uuid())
+  jobId           String
+  job             Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Application Status
+  status          String   @default("PENDING") // PENDING, REVIEWING, SHORTLISTED, REJECTED, HIRED
+  
+  // Cover Letter/Notes
+  coverLetter     String?
+  
+  // Resume/CV
+  resumeUrl       String?
+  
+  // Timestamps
+  appliedAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([jobId, userId])
+  @@index([jobId])
+  @@index([userId])
+  @@index([status])
+}
+
+// ============================================
+// SCHEME MODULE
+// ============================================
+
+model Scheme {
+  id              String   @id @default(uuid())
+  businessId      String
+  business        Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  
+  // Scheme Details
+  title           String
+  description     String
+  category        String   // e.g., "Government", "Private", "NGO"
+  
+  // Eligibility Criteria
+  eligibilityCriteria Json? // { minAge, maxAge, incomeLimit, requiredDocuments }
+  
+  // Benefits
+  benefits        String[]
+  
+  // Amount/Value
+  schemeValue     Float?
+  
+  // Status
+  status          String   @default("ACTIVE") // ACTIVE, INACTIVE, EXPIRED
+  validFrom       DateTime?
+  validUntil      DateTime?
+  
+  // Agent Service Fee
+  agentFee        Float    @default(0)
+  
+  // Relations
+  bookings        SchemeBooking[]
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([category])
+  @@index([status])
+}
+
+// Scheme Bookings (User books Saathi for scheme)
+model SchemeBooking {
+  id              String   @id @default(uuid())
+  schemeId        String
+  scheme          Scheme   @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  saathiId        String
+  saathi          User     @relation("SaathiBookings", fields: [saathiId], references: [id], onDelete: Cascade)
+  
+  // Status
+  status          String   @default("PENDING") // PENDING, CONFIRMED, COMPLETED, CANCELLED
+  
+  // Payment
+  agentFee        Float
+  paymentStatus   String   @default("PENDING") // PENDING, PAID, REFUNDED
+  
+  // Notes
+  notes           String?
+  
+  // Commission for Saathi
+  commissionAmount Float   @default(0)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([schemeId])
+  @@index([userId])
+  @@index([saathiId])
+  @@index([status])
+}
+
+// ============================================
+// PAYMENT MODULE
+// ============================================
+
+model Payment {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Payment Details
+  type            String   // USER_REGISTRATION, BUSINESS_REGISTRATION, MEMBER_UPGRADE, AGENT_SERVICE, WALLET_TOPUP
+  amount          Float
+  currency        String   @default("INR")
+  
+  // Gateway Info
+  gateway         String?  // RAZORPAY, STRIPE, MANUAL
+  gatewayOrderId  String?
+  gatewayPaymentId String?
+  
+  // Status
+  status          String   @default("PENDING") // PENDING, COMPLETED, FAILED, REFUNDED
+  
+  // For wallet topup
+  walletTransactionId String?
+  
+  // Metadata
+  metadata        Json?
+  
+  // Admin approval for manual payments
+  approvedBy      String?
+  approvedAt      DateTime?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([type])
+  @@index([gatewayOrderId])
+}
+
+// ============================================
+// Admin-Managed Job Categories
+model JobCategory {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  tenantId    String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  roles       JobRole[]
+  
+  @@index([tenantId])
+  @@index([isActive])
+}
+
+// Admin-Managed Job Roles
+model JobRole {
+  id          String   @id @default(uuid())
+  name        String
+  categoryId  String
+  category    JobCategory @relation(fields: [categoryId], references: [id])
+  description String?
+  isActive    Boolean  @default(true)
+  tenantId    String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@unique([name, categoryId])
+  @@index([categoryId])
+  @@index([tenantId])
+  @@index([isActive])
+}
+
+// Admin-Managed Skills
+model Skill {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  category    String?  // Technical, Soft Skills, etc.
+  isActive    Boolean  @default(true)
+  tenantId    String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([tenantId])
+  @@index([isActive])
+}
+
+// Profile Verification Queue (for admin)
+model ProfileVerification {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profileId       String?
+  
+  transactionType String   // ONLY_PROFILE or PROFILE_WITH_RESUME
+  feeAmount       Float
+  paymentId       String?
+  
+  status          String   @default("PENDING") // PENDING, VERIFIED, REJECTED
+  verifiedBy      String?
+  verifiedAt      DateTime?
+  rejectionReason String?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([status])
+  @@index([transactionType])
+}
+
+// Admin-Managed Facilities for Job Posting
+model Facility {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  icon        String?  // Optional icon/image URL
+  isActive    Boolean  @default(true)
+  tenantId    String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([tenantId])
+  @@index([isActive])
+}
+
+// Business Partner Job Posting Credits
+model BusinessJobCredit {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Credit Details
+  totalCredits    Int      @default(0) // Total jobs they can post
+  usedCredits     Int      @default(0) // Jobs already posted
+  remainingCredits Int     @default(0) // Computed: total - used
+  
+  // Plan Details
+  planName        String?  // e.g., "BASIC", "PREMIUM", "ENTERPRISE"
+  planAmount      Float    @default(0) // Amount paid for the plan
+  
+  // Validity
+  validFrom       DateTime @default(now())
+  validUntil      DateTime?
+  
+  // Status
+  isActive        Boolean  @default(true)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([isActive])
+  @@index([validUntil])
+}
+
+// SERVICE REGISTRY (For API failover)
+// ============================================
+
+model ServiceRegistry {
+  id              String   @id @default(uuid())
+  
+  // Service Info
+  serviceName     String   @unique // e.g., "IME", "PRABHU", "SMS"
+  serviceType     String   // REMITTANCE, SMS, PAYMENT
+  
+  // Configuration
+  isActive        Boolean  @default(true)
+  priority        Int      @default(1) // Lower = higher priority
+  baseUrl         String
+  apiKey          String?
+  apiSecret       String?
+  
+  // Timeouts
+  timeoutMs       Int      @default(30000)
+  
+  // Failover config
+  retryAttempts   Int      @default(3)
+  fallbackService String?  // Another serviceName to fallback
+  
+  // Health check
+  lastHealthCheck DateTime?
+  isHealthy       Boolean  @default(true)
+  
+  // Tenant specific
+  tenantId        String?
+  
+  updatedBy       String?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@index([serviceName])
+  @@index([isActive])
+  @@index([priority])
+  @@index([tenantId])
+}
+
+// Member/Premium Membership Model (Enhanced)
+model Member {
+  id              String       @id @default(uuid())
+  userId          String       @unique
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Personal Details
+  firstName       String?
+  lastName        String?
+  birthDate       DateTime?
+  email           String?
+  profilePhoto    String?
+  imageName       String?
+  
+  // Demographics
+  genderId        String?
+  maritalStatus   String?
+  citizen         String?
+  
+  // Education & Occupation
+  education       String?
+  occupation      String?
+  sector          String?
+  jobRoles        String[]     // Array of job role IDs
+  
+  // Migrant Worker Status
+  isMigrantWorker       Boolean @default(false)
+  incomeAboveThreshold  Boolean @default(false)
+  
+  // Parent/Referrer
+  parentId        String?
+  
+  // Addresses (stored as JSON)
+  addresses       Json?        // [{ address, districtId, stateId, municipalityId, country, pinCode, addressType }]
+  
+  // Documents (stored as JSON)
+  documents       Json?        // [{ id, type, document, documentUrl, format, name, size, documentNumber }]
+  
+  // Membership Details
+  status          MemberStatus @default(ACTIVE)
+  planName        String       @default("PREMIUM")
+  
+  // Validity
+  startedAt       DateTime     @default(now())
+  expiresAt       DateTime?
+  
+  // Payment Details
+  paymentId       String?
+  amount          Float        @default(0)
+  platformFees    Float        @default(0)
+  gst             Float        @default(0)
+  serviceCharge   Float        @default(0)
+  totalAmount     Float        @default(0)
+  
+  // Payment Tracking
+  razorPayReferenceNo String?
+  paymentMode     String?      // ONLINE, CASH, UPI, etc.
+  tnxStatus       String       @default("PENDING") // PENDING, COMPLETED, FAILED
+  
+  // Who created this member
+  createdBy       String?      // userId of creator (null if self-registered)
+  isAdminCreated  Boolean      @default(false)
+  
+  // Benefits Tracking
+  benefitsUsed    Json?
+  
+  // Auto-renewal
+  autoRenew       Boolean      @default(false)
+  
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([expiresAt])
+  @@index([isAdminCreated])
+}
+
+// Agent/Saathi Model
+model Agent {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Aadhaar Details
+  aadharNumber          String?
+  maskAadharNumber      String?
+  aadhaarFatherName     String?
+  aadhaarName           String?
+  aadhaarAddress        String?
+  aadhaarDOB            DateTime?
+  isAadharApproved      Boolean  @default(false)
+  
+  // PAN Card Details
+  panCardNo             String?
+  isAadharSeeding       String?
+  panFirstName          String?
+  panMiddleName         String?
+  panLastName           String?
+  isPanCardApproved     Boolean  @default(false)
+  
+  // Skills & Equipment
+  computerLiteracy              Boolean @default(false)
+  isPC                          Boolean @default(false)
+  internetSearchAndAccessLiteracy Boolean @default(false)
+  isEKYCDevice                  Boolean @default(false)
+  
+  // Shop Address
+  shopName        String?
+  shopType        String?
+  licenceNo       String?
+  shopAddress     String?
+  shopDistrictId  String?
+  shopMunicipalityId String?
+  shopStateId     String?
+  shopPinCode     String?
+  shopCountry     String?
+  
+  // Documents
+  documents       Json?    // [{ id, type, document, documentUrl, format, name, size, documentNumber }]
+  
+  // Sections/Service Areas
+  sections        String[] // Array of section IDs
+  
+  // Parent/Referrer
+  parentUserId    String?
+  
+  // Personal Addresses
+  addresses       Json?    // [{ address, districtId, stateId, municipalityId, country, pinCode, addressType }]
+  
+  // Fees & Payment
+  schemeFees      Float    @default(0)
+  platformFees    Float    @default(0)
+  gst             Float    @default(0)
+  serviceCharge   Float    @default(0)
+  totalAmount     Float    @default(0)
+  
+  // Payment Tracking
+  referenceNo           String?
+  razorPayReferenceNo   String?
+  paymentMode           String?
+  
+  // Status
+  status          String   @default("PENDING") // PENDING, ACTIVE, SUSPENDED, REJECTED
+  
+  // Who created this agent
+  createdBy       String?  // userId of creator
+  isAdminCreated  Boolean  @default(false)
+  upgradedFromMember Boolean @default(false) // true if upgraded from member
+  
+  // Approval
+  approvedBy      String?
+  approvedAt      DateTime?
+  rejectionReason String?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([isAdminCreated])
+  @@index([upgradedFromMember])
+}
+
