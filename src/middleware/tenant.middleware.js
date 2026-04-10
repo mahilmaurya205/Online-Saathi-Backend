@@ -14,17 +14,22 @@ module.exports = async (req, res, next) => {
     }
 
     // ✅ STEP 1: Allow Render domain (IMPORTANT FIX)
-    if (host.includes("onrender.com")) {
+    if (host.includes("onrender.com") || host.includes("render.com")) {
       console.log("Bypassing tenant check for Render domain");
 
-      const fallbackTenant =
-        await prisma.tenant.findFirst({
-          where: { domain: "os.dpinfoserver.co.in" }
-        }) || await prisma.tenant.findFirst();
+      try {
+        const fallbackTenant =
+          await prisma.tenant.findFirst({
+            where: { domain: "os.dpinfoserver.co.in" }
+          }) || await prisma.tenant.findFirst();
 
-      if (fallbackTenant) {
-        req.tenant_id = fallbackTenant.id;
-        return next();
+        if (fallbackTenant) {
+          console.log("Using fallback tenant for Render:", fallbackTenant.id);
+          req.tenant_id = fallbackTenant.id;
+          return next();
+        }
+      } catch (dbError) {
+        console.error("Database error in tenant middleware:", dbError.message);
       }
     }
 
@@ -45,15 +50,19 @@ module.exports = async (req, res, next) => {
 
     // ✅ STEP 3: Fallback (even in production)
     if (!tenant) {
-      const fallbackTenant =
-        await prisma.tenant.findFirst({
-          where: { domain: "os.dpinfoserver.co.in" }
-        }) || await prisma.tenant.findFirst();
+      try {
+        const fallbackTenant =
+          await prisma.tenant.findFirst({
+            where: { domain: "os.dpinfoserver.co.in" }
+          }) || await prisma.tenant.findFirst();
 
-      if (fallbackTenant) {
-        console.log("Using fallback tenant:", fallbackTenant.id);
-        req.tenant_id = fallbackTenant.id;
-        return next();
+        if (fallbackTenant) {
+          console.log("Using fallback tenant:", fallbackTenant.id);
+          req.tenant_id = fallbackTenant.id;
+          return next();
+        }
+      } catch (dbError) {
+        console.error("Database error in fallback:", dbError.message);
       }
 
       console.warn(`Tenant not found for: ${host}`);
