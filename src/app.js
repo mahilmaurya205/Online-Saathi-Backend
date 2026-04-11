@@ -27,6 +27,7 @@ const adminRoutes = require("./routes/admin.routes");
 const superAdminRoutes = require("./routes/superadmin.routes");
 const prabhuRoutes = require("./modules/prabhu/prabhu.routes");
 const imeRoutes = require("./modules/ime/ime.routes");
+const setupRoutes = require("./routes/setup.routes");
 
 const app = express();
 
@@ -99,6 +100,7 @@ app.use("/api/super-admin", superAdminRoutes);
 app.use("/api/prabhu", prabhuRoutes);
 app.use("/api/Prabhu", prabhuRoutes);
 app.use("/api/ime", imeRoutes);
+app.use("/api/setup", setupRoutes);
 
 
 app.use((req, res) => res.status(404).json({ message: "not found" }));
