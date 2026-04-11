@@ -24,10 +24,22 @@ module.exports = async (req, res, next) => {
       try {
         const defaultTenant = await prisma.tenant.findFirst();
         if (defaultTenant) {
+          console.log("Using default tenant for public path:", defaultTenant.id);
           req.tenant_id = defaultTenant.id;
+        } else {
+          console.error("No tenant found in database!");
+          return res.status(500).json({
+            success: false,
+            message: "Database not configured - no tenant found"
+          });
         }
       } catch (e) {
-        console.log("Could not fetch default tenant, continuing anyway");
+        console.error("Database error in tenant middleware:", e.message);
+        return res.status(500).json({
+          success: false,
+          message: "Database connection error",
+          error: e.message
+        });
       }
       return next();
     }
