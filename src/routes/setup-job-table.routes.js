@@ -9,38 +9,53 @@ router.post('/fix-job-table', async (req, res) => {
   try {
     console.log('🔧 Fixing Job table...');
 
-    // Check if postedById column exists
-    try {
-      await prisma.$queryRaw`SELECT postedById FROM "Job" LIMIT 1`;
-      console.log('✅ postedById column already exists');
-    } catch (e) {
-      console.log('❌ postedById column missing. Adding it...');
-      
-      // Add postedById column
-      await prisma.$executeRawUnsafe(`
-        ALTER TABLE "Job" ADD COLUMN IF NOT EXISTS "postedById" TEXT
-      `);
-      
-      // Add postedByRole column
-      await prisma.$executeRawUnsafe(`
-        ALTER TABLE "Job" ADD COLUMN IF NOT EXISTS "postedByRole" TEXT
-      `);
-      
-      // Add foreign key constraint
-      await prisma.$executeRawUnsafe(`
-        ALTER TABLE "Job" ADD CONSTRAINT "Job_postedById_fkey" 
-        FOREIGN KEY ("postedById") REFERENCES "User"("id") 
-        ON DELETE CASCADE ON UPDATE CASCADE
-      `);
-      
-      console.log('✅ Job table fixed successfully');
+    // Get all existing columns
+    const columnsResult = await prisma.$queryRaw`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'Job'
+    `;
+    
+    const existingColumns = columnsResult.map(row => row.column_name);
+    console.log('Existing columns:', existingColumns);
+
+    // Add postedById if missing
+    if (!existingColumns.includes('postedById')) {
+      console.log('  Adding postedById column...');
+      await prisma.$executeRawUnsafe(`ALTER TABLE "Job" ADD COLUMN "postedById" TEXT`);
+    }
+    
+    // Add postedByRole if missing
+    if (!existingColumns.includes('postedByRole')) {
+      console.log('  Adding postedByRole column...');
+      await prisma.$executeRawUnsafe(`ALTER TABLE "Job" ADD COLUMN "postedByRole" TEXT`);
+    }
+    
+    // Add foreign key constraint only if it doesn't exist
+    const constraintCheck = await prisma.$queryRaw`
+      SELECT constraint_name 
+      FROM information_schema.table_constraints 
+      WHERE table_name = 'Job' AND constraint_name = 'Job_postedById_fkey'
+    `;
+    
+    if (constraintCheck.length === 0) {
+      console.log('  Adding foreign key constraint...');
+      try {
+        await prisma.$executeRawUnsafe(`
+          ALTER TABLE "Job" ADD CONSTRAINT "Job_postedById_fkey" 
+          FOREIGN KEY ("postedById") REFERENCES "User"("id") 
+          ON DELETE CASCADE ON UPDATE CASCADE
+        `);
+      } catch (e) {
+        console.log('  Foreign key constraint already exists or error:', e.message);
+      }
     }
 
-    // Check if other columns exist and add if missing
+    // Check and add missing columns
     const columnsToAdd = [
       { name: 'businessId', type: 'TEXT' },
       { name: 'paymentId', type: 'TEXT' },
-      { name: 'paymentStatus', type: 'TEXT', default: "'PENDING'" },
+      { name: 'paymentStatus', type: 'TEXT', default: 'PENDING' },
       { name: 'paymentAmount', type: 'DOUBLE PRECISION' },
       { name: 'jobRole', type: 'TEXT' },
       { name: 'jobDescription', type: 'TEXT' },
@@ -66,8 +81,8 @@ router.post('/fix-job-table', async (req, res) => {
       { name: 'joiningFees', type: 'BOOLEAN', default: 'false' },
       { name: 'contactName', type: 'TEXT' },
       { name: 'contactNumber', type: 'TEXT' },
-      { name: 'status', type: 'TEXT', default: "'ACTIVE'" },
-      { name: 'approvalStatus', type: 'TEXT', default: "'APPROVED'" },
+      { name: 'status', type: 'TEXT', default: 'ACTIVE' },
+      { name: 'approvalStatus', type: 'TEXT', default: 'APPROVED' },
       { name: 'appliedCount', type: 'INTEGER', default: '0' },
       { name: 'postedAt', type: 'TIMESTAMP(3)', default: 'CURRENT_TIMESTAMP' },
       { name: 'updatedAt', type: 'TIMESTAMP(3)', default: 'CURRENT_TIMESTAMP' },
@@ -75,13 +90,11 @@ router.post('/fix-job-table', async (req, res) => {
     ];
 
     for (const col of columnsToAdd) {
-      try {
-        await prisma.$queryRaw`SELECT ${prisma.raw(col.name)} FROM "Job" LIMIT 1`;
-      } catch (e) {
+      if (!existingColumns.includes(col.name)) {
         console.log(`  Adding column: ${col.name}`);
-        const defaultValue = col.default ? ` DEFAULT ${col.default}` : '';
+        const defaultValue = col.default ? ` DEFAULT ${col.type === 'TEXT' ? `'${col.default}'` : col.default}` : '';
         await prisma.$executeRawUnsafe(`
-          ALTER TABLE "Job" ADD COLUMN IF NOT EXISTS "${col.name}" ${col.type}${defaultValue}
+          ALTER TABLE "Job" ADD COLUMN "${col.name}" ${col.type}${defaultValue}
         `);
       }
     }
@@ -90,7 +103,9 @@ router.post('/fix-job-table', async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Job table fixed successfully'
+      message: 'Job table fixed successfully',
+      existingColumns: existingColumns.length,
+      totalColumns: columnsToAdd.length + 2
     });
   } catch (error) {
     console.error('Error fixing Job table:', error);
