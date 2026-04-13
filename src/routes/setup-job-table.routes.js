@@ -39,6 +39,9 @@ router.post('/fix-job-table', async (req, res) => {
     // Check if other columns exist and add if missing
     const columnsToAdd = [
       { name: 'businessId', type: 'TEXT' },
+      { name: 'paymentId', type: 'TEXT' },
+      { name: 'paymentStatus', type: 'TEXT', default: "'PENDING'" },
+      { name: 'paymentAmount', type: 'DOUBLE PRECISION' },
       { name: 'jobRole', type: 'TEXT' },
       { name: 'jobDescription', type: 'TEXT' },
       { name: 'requiredSkills', type: 'TEXT[]' },
