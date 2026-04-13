@@ -4,128 +4,116 @@ const prisma = new PrismaClient();
 
 const router = express.Router();
 
-// Fix Job table array columns properly
+// Completely recreate Job table
 router.post('/fix-job-table', async (req, res) => {
   try {
-    console.log('🔧 Fixing Job table...');
+    console.log('🔧 Recreating Job table from scratch...');
 
-    // Get all existing columns
-    const columnsResult = await prisma.$queryRaw`
-      SELECT column_name, data_type, udt_name
-      FROM information_schema.columns 
-      WHERE table_name = 'Job'
-      ORDER BY ordinal_position
-    `;
+    // Step 1: Drop the table if it exists
+    console.log('  Dropping existing Job table...');
+    await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS "Job" CASCADE`);
     
-    const existingColumns = columnsResult.map(row => row.column_name);
-    console.log(`Found ${existingColumns.length} columns`);
-
-    // Drop problematic array columns if they exist with wrong type
-    const arrayColumns = ['requiredSkills', 'facilities'];
-    
-    for (const col of arrayColumns) {
-      if (existingColumns.includes(col)) {
-        console.log(`  Dropping ${col} to recreate as proper array...`);
-        await prisma.$executeRawUnsafe(`ALTER TABLE "Job" DROP COLUMN IF EXISTS "${col}"`);
-      }
-    }
-
-    // Re-add array columns with correct type
-    for (const col of arrayColumns) {
-      console.log(`  Adding ${col} as TEXT[]...`);
-      await prisma.$executeRawUnsafe(`ALTER TABLE "Job" ADD COLUMN "${col}" TEXT[] DEFAULT ARRAY[]::TEXT[]`);
-    }
-
-    // Add any missing non-array columns
-    const columnsToAdd = [
-      { name: 'id', type: 'TEXT', default: 'gen_random_uuid()' },
-      { name: 'businessId', type: 'TEXT' },
-      { name: 'postedById', type: 'TEXT' },
-      { name: 'postedByRole', type: 'TEXT' },
-      { name: 'jobRole', type: 'TEXT' },
-      { name: 'jobDescription', type: 'TEXT' },
-      { name: 'jobType', type: 'TEXT' },
-      { name: 'payStructure', type: 'TEXT' },
-      { name: 'offeredAmount', type: 'DOUBLE PRECISION' },
-      { name: 'openings', type: 'INTEGER', default: '1' },
-      { name: 'shift', type: 'TEXT' },
-      { name: 'urgentHiring', type: 'BOOLEAN', default: 'false' },
-      { name: 'education', type: 'TEXT' },
-      { name: 'experience', type: 'INTEGER', default: '0' },
-      { name: 'gender', type: 'TEXT' },
-      { name: 'minAge', type: 'INTEGER' },
-      { name: 'maxAge', type: 'INTEGER' },
-      { name: 'country', type: 'TEXT' },
-      { name: 'state', type: 'TEXT' },
-      { name: 'district', type: 'TEXT' },
-      { name: 'pincode', type: 'TEXT' },
-      { name: 'fullAddress', type: 'TEXT' },
-      { name: 'weekOffDays', type: 'TEXT' },
-      { name: 'joiningFees', type: 'BOOLEAN', default: 'false' },
-      { name: 'contactName', type: 'TEXT' },
-      { name: 'contactNumber', type: 'TEXT' },
-      { name: 'status', type: 'TEXT', default: "'ACTIVE'" },
-      { name: 'paymentId', type: 'TEXT' },
-      { name: 'postingFee', type: 'DOUBLE PRECISION', default: '0' },
-      { name: 'createdAt', type: 'TIMESTAMP(3)', default: 'CURRENT_TIMESTAMP' },
-      { name: 'updatedAt', type: 'TIMESTAMP(3)', default: 'CURRENT_TIMESTAMP' },
-    ];
-
-    let addedCount = 0;
-    for (const col of columnsToAdd) {
-      if (!existingColumns.includes(col.name) && !arrayColumns.includes(col.name)) {
-        console.log(`  Adding: ${col.name}`);
-        const defaultClause = col.default ? ` DEFAULT ${col.default}` : '';
-        await prisma.$executeRawUnsafe(`
-          ALTER TABLE "Job" ADD COLUMN "${col.name}" ${col.type}${defaultClause}
-        `);
-        addedCount++;
-      }
-    }
-
-    // Add foreign keys
-    const foreignKeys = [
-      {
-        name: 'Job_postedById_fkey',
-        sql: `ALTER TABLE "Job" ADD CONSTRAINT "Job_postedById_fkey" FOREIGN KEY ("postedById") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE`
-      },
-      {
-        name: 'Job_businessId_fkey',
-        sql: `ALTER TABLE "Job" ADD CONSTRAINT "Job_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE`
-      }
-    ];
-
-    for (const fk of foreignKeys) {
-      try {
-        const exists = await prisma.$queryRaw`
-          SELECT constraint_name 
-          FROM information_schema.table_constraints 
-          WHERE table_name = 'Job' AND constraint_name = ${fk.name}
-        `;
+    // Step 2: Create fresh table with correct schema
+    console.log('  Creating fresh Job table...');
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE "Job" (
+        "id" TEXT NOT NULL DEFAULT gen_random_uuid(),
+        "businessId" TEXT,
+        "postedById" TEXT,
+        "postedByRole" TEXT,
+        "jobRole" TEXT,
+        "jobDescription" TEXT,
+        "requiredSkills" TEXT[] DEFAULT ARRAY[]::TEXT[],
+        "jobType" TEXT,
+        "payStructure" TEXT,
+        "offeredAmount" DOUBLE PRECISION,
+        "openings" INTEGER DEFAULT 1,
+        "shift" TEXT,
+        "urgentHiring" BOOLEAN DEFAULT false,
+        "education" TEXT,
+        "experience" INTEGER DEFAULT 0,
+        "gender" TEXT,
+        "minAge" INTEGER,
+        "maxAge" INTEGER,
+        "country" TEXT,
+        "state" TEXT,
+        "district" TEXT,
+        "pincode" TEXT,
+        "fullAddress" TEXT,
+        "weekOffDays" TEXT,
+        "facilities" TEXT[] DEFAULT ARRAY[]::TEXT[],
+        "joiningFees" BOOLEAN DEFAULT false,
+        "contactName" TEXT,
+        "contactNumber" TEXT,
+        "status" TEXT DEFAULT 'ACTIVE',
+        "paymentId" TEXT,
+        "postingFee" DOUBLE PRECISION DEFAULT 0,
+        "createdAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
         
-        if (exists.length === 0) {
-          await prisma.$executeRawUnsafe(fk.sql);
-          console.log(`  ✓ Added FK: ${fk.name}`);
-        }
+        CONSTRAINT "Job_pkey" PRIMARY KEY ("id")
+      )
+    `);
+
+    // Step 3: Add indexes
+    console.log('  Creating indexes...');
+    const indexes = [
+      `CREATE INDEX "Job_businessId_idx" ON "Job"("businessId")`,
+      `CREATE INDEX "Job_postedById_idx" ON "Job"("postedById")`,
+      `CREATE INDEX "Job_state_idx" ON "Job"("state")`,
+      `CREATE INDEX "Job_district_idx" ON "Job"("district")`,
+      `CREATE INDEX "Job_status_idx" ON "Job"("status")`,
+      `CREATE INDEX "Job_jobType_idx" ON "Job"("jobType")`,
+      `CREATE INDEX "Job_jobRole_idx" ON "Job"("jobRole")`,
+    ];
+
+    for (const idx of indexes) {
+      try {
+        await prisma.$executeRawUnsafe(idx);
       } catch (e) {
-        console.log(`  FK ${fk.name} error:`, e.message);
+        // Index already exists
       }
     }
 
-    console.log('✅ Job table fixed!');
+    // Step 4: Add foreign keys
+    console.log('  Adding foreign keys...');
+    
+    try {
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE "Job" ADD CONSTRAINT "Job_postedById_fkey" 
+        FOREIGN KEY ("postedById") REFERENCES "User"("id") 
+        ON DELETE CASCADE ON UPDATE CASCADE
+      `);
+      console.log('  ✓ postedById FK added');
+    } catch (e) {
+      console.log('  postedById FK error:', e.message);
+    }
+
+    try {
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE "Job" ADD CONSTRAINT "Job_businessId_fkey" 
+        FOREIGN KEY ("businessId") REFERENCES "Business"("id") 
+        ON DELETE CASCADE ON UPDATE CASCADE
+      `);
+      console.log('  ✓ businessId FK added');
+    } catch (e) {
+      console.log('  businessId FK error:', e.message);
+    }
+
+    console.log('✅ Job table recreated successfully!');
 
     res.json({
       success: true,
-      message: 'Job table fixed successfully',
-      columnsAdded: addedCount,
-      arrayColumnsFixed: arrayColumns
+      message: 'Job table recreated from scratch with correct schema',
+      details: 'Table dropped and recreated with proper TEXT[] array columns'
     });
   } catch (error) {
-    console.error('Error fixing Job table:', error);
+    console.error('Error recreating Job table:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fix Job table',
-      error: error.message
+      message: 'Failed to recreate Job table',
+      error: error.message,
+      stack: error.stack
     });
   }
 });
