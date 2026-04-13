@@ -4,199 +4,128 @@ const prisma = new PrismaClient();
 
 const router = express.Router();
 
-// Completely rebuild Job table with ALL columns from schema
+// Fix Job table array columns properly
 router.post('/fix-job-table', async (req, res) => {
   try {
-    console.log('🔧 Fixing Job table - adding all missing columns...');
+    console.log('🔧 Fixing Job table...');
 
     // Get all existing columns
     const columnsResult = await prisma.$queryRaw`
-      SELECT column_name, data_type, column_default
+      SELECT column_name, data_type, udt_name
       FROM information_schema.columns 
       WHERE table_name = 'Job'
       ORDER BY ordinal_position
     `;
     
     const existingColumns = columnsResult.map(row => row.column_name);
-    console.log(`Found ${existingColumns.length} existing columns`);
+    console.log(`Found ${existingColumns.length} columns`);
 
-    // ALL columns from Prisma Job model
-    const allJobColumns = [
-      // ID and Relations
-      { name: 'id', type: 'TEXT', nullable: false },
-      { name: 'businessId', type: 'TEXT', nullable: true },
-      { name: 'postedById', type: 'TEXT', nullable: true },
-      { name: 'postedByRole', type: 'TEXT', nullable: true },
-      
-      // Job Details
-      { name: 'jobRole', type: 'TEXT', nullable: true },
-      { name: 'jobDescription', type: 'TEXT', nullable: true },
-      { name: 'requiredSkills', type: 'TEXT[]', nullable: true },
-      
-      // Basic Job Info
-      { name: 'jobType', type: 'TEXT', nullable: true },
-      { name: 'payStructure', type: 'TEXT', nullable: true },
-      { name: 'offeredAmount', type: 'DOUBLE PRECISION', nullable: true },
-      { name: 'openings', type: 'INTEGER', nullable: true, default: '1' },
-      { name: 'shift', type: 'TEXT', nullable: true },
-      { name: 'urgentHiring', type: 'BOOLEAN', nullable: true, default: 'false' },
-      
-      // Candidate Requirements
-      { name: 'education', type: 'TEXT', nullable: true },
-      { name: 'experience', type: 'INTEGER', nullable: true, default: '0' },
-      { name: 'gender', type: 'TEXT', nullable: true },
-      { name: 'minAge', type: 'INTEGER', nullable: true },
-      { name: 'maxAge', type: 'INTEGER', nullable: true },
-      { name: 'country', type: 'TEXT', nullable: true },
-      { name: 'state', type: 'TEXT', nullable: true },
-      { name: 'district', type: 'TEXT', nullable: true },
-      { name: 'pincode', type: 'TEXT', nullable: true },
-      { name: 'fullAddress', type: 'TEXT', nullable: true },
-      
-      // Facilities & Fees
-      { name: 'weekOffDays', type: 'TEXT', nullable: true },
-      { name: 'facilities', type: 'TEXT[]', nullable: true },
-      { name: 'joiningFees', type: 'BOOLEAN', nullable: true, default: 'false' },
-      { name: 'contactName', type: 'TEXT', nullable: true },
-      { name: 'contactNumber', type: 'TEXT', nullable: true },
-      
-      // Status
-      { name: 'status', type: 'TEXT', nullable: true, default: 'ACTIVE' },
-      
-      // Payment tracking
-      { name: 'paymentId', type: 'TEXT', nullable: true },
-      { name: 'postingFee', type: 'DOUBLE PRECISION', nullable: true, default: '0' },
-      
-      // Timestamps
-      { name: 'createdAt', type: 'TIMESTAMP(3)', nullable: true, default: 'CURRENT_TIMESTAMP' },
-      { name: 'updatedAt', type: 'TIMESTAMP(3)', nullable: true, default: 'CURRENT_TIMESTAMP' },
+    // Drop problematic array columns if they exist with wrong type
+    const arrayColumns = ['requiredSkills', 'facilities'];
+    
+    for (const col of arrayColumns) {
+      if (existingColumns.includes(col)) {
+        console.log(`  Dropping ${col} to recreate as proper array...`);
+        await prisma.$executeRawUnsafe(`ALTER TABLE "Job" DROP COLUMN IF EXISTS "${col}"`);
+      }
+    }
+
+    // Re-add array columns with correct type
+    for (const col of arrayColumns) {
+      console.log(`  Adding ${col} as TEXT[]...`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "Job" ADD COLUMN "${col}" TEXT[] DEFAULT ARRAY[]::TEXT[]`);
+    }
+
+    // Add any missing non-array columns
+    const columnsToAdd = [
+      { name: 'id', type: 'TEXT', default: 'gen_random_uuid()' },
+      { name: 'businessId', type: 'TEXT' },
+      { name: 'postedById', type: 'TEXT' },
+      { name: 'postedByRole', type: 'TEXT' },
+      { name: 'jobRole', type: 'TEXT' },
+      { name: 'jobDescription', type: 'TEXT' },
+      { name: 'jobType', type: 'TEXT' },
+      { name: 'payStructure', type: 'TEXT' },
+      { name: 'offeredAmount', type: 'DOUBLE PRECISION' },
+      { name: 'openings', type: 'INTEGER', default: '1' },
+      { name: 'shift', type: 'TEXT' },
+      { name: 'urgentHiring', type: 'BOOLEAN', default: 'false' },
+      { name: 'education', type: 'TEXT' },
+      { name: 'experience', type: 'INTEGER', default: '0' },
+      { name: 'gender', type: 'TEXT' },
+      { name: 'minAge', type: 'INTEGER' },
+      { name: 'maxAge', type: 'INTEGER' },
+      { name: 'country', type: 'TEXT' },
+      { name: 'state', type: 'TEXT' },
+      { name: 'district', type: 'TEXT' },
+      { name: 'pincode', type: 'TEXT' },
+      { name: 'fullAddress', type: 'TEXT' },
+      { name: 'weekOffDays', type: 'TEXT' },
+      { name: 'joiningFees', type: 'BOOLEAN', default: 'false' },
+      { name: 'contactName', type: 'TEXT' },
+      { name: 'contactNumber', type: 'TEXT' },
+      { name: 'status', type: 'TEXT', default: "'ACTIVE'" },
+      { name: 'paymentId', type: 'TEXT' },
+      { name: 'postingFee', type: 'DOUBLE PRECISION', default: '0' },
+      { name: 'createdAt', type: 'TIMESTAMP(3)', default: 'CURRENT_TIMESTAMP' },
+      { name: 'updatedAt', type: 'TIMESTAMP(3)', default: 'CURRENT_TIMESTAMP' },
     ];
 
-    let addedColumns = [];
-
-    // Add missing columns
-    for (const col of allJobColumns) {
-      if (!existingColumns.includes(col.name)) {
-        console.log(`  Adding: ${col.name} (${col.type})`);
-        
-        let sql = `ALTER TABLE "Job" ADD COLUMN "${col.name}" ${col.type}`;
-        
-        if (col.default) {
-          sql += ` DEFAULT ${col.default}`;
-        }
-        
-        if (col.nullable) {
-          sql += ` NULL`;
-        }
-        
-        await prisma.$executeRawUnsafe(sql);
-        addedColumns.push(col.name);
-      }
-    }
-
-    // Handle special case for array columns (Prisma stores arrays differently)
-    try {
-      await prisma.$executeRawUnsafe(`
-        ALTER TABLE "Job" ALTER COLUMN "requiredSkills" TYPE TEXT[] USING 
-        CASE 
-          WHEN requiredSkills IS NULL THEN ARRAY[]::TEXT[]
-          WHEN requiredSkills = '' THEN ARRAY[]::TEXT[]
-          ELSE ARRAY[requiredSkills]::TEXT[]
-        END
-      `);
-      console.log('  ✓ Fixed requiredSkills array type');
-    } catch (e) {
-      console.log('  requiredSkills array already correct or error:', e.message);
-    }
-
-    try {
-      await prisma.$executeRawUnsafe(`
-        ALTER TABLE "Job" ALTER COLUMN "facilities" TYPE TEXT[] USING 
-        CASE 
-          WHEN facilities IS NULL THEN ARRAY[]::TEXT[]
-          WHEN facilities = '' THEN ARRAY[]::TEXT[]
-          ELSE ARRAY[facilities]::TEXT[]
-        END
-      `);
-      console.log('  ✓ Fixed facilities array type');
-    } catch (e) {
-      console.log('  facilities array already correct or error:', e.message);
-    }
-
-    // Add foreign key constraints
-    try {
-      const postedByConstraint = await prisma.$queryRaw`
-        SELECT constraint_name 
-        FROM information_schema.table_constraints 
-        WHERE table_name = 'Job' AND constraint_name = 'Job_postedById_fkey'
-      `;
-      
-      if (postedByConstraint.length === 0) {
+    let addedCount = 0;
+    for (const col of columnsToAdd) {
+      if (!existingColumns.includes(col.name) && !arrayColumns.includes(col.name)) {
+        console.log(`  Adding: ${col.name}`);
+        const defaultClause = col.default ? ` DEFAULT ${col.default}` : '';
         await prisma.$executeRawUnsafe(`
-          ALTER TABLE "Job" ADD CONSTRAINT "Job_postedById_fkey" 
-          FOREIGN KEY ("postedById") REFERENCES "User"("id") 
-          ON DELETE CASCADE ON UPDATE CASCADE
+          ALTER TABLE "Job" ADD COLUMN "${col.name}" ${col.type}${defaultClause}
         `);
-        console.log('  ✓ Added postedById foreign key');
+        addedCount++;
       }
-    } catch (e) {
-      console.log('  postedById FK error:', e.message);
     }
 
-    try {
-      const businessConstraint = await prisma.$queryRaw`
-        SELECT constraint_name 
-        FROM information_schema.table_constraints 
-        WHERE table_name = 'Job' AND constraint_name = 'Job_businessId_fkey'
-      `;
-      
-      if (businessConstraint.length === 0) {
-        await prisma.$executeRawUnsafe(`
-          ALTER TABLE "Job" ADD CONSTRAINT "Job_businessId_fkey" 
-          FOREIGN KEY ("businessId") REFERENCES "Business"("id") 
-          ON DELETE CASCADE ON UPDATE CASCADE
-        `);
-        console.log('  ✓ Added businessId foreign key');
+    // Add foreign keys
+    const foreignKeys = [
+      {
+        name: 'Job_postedById_fkey',
+        sql: `ALTER TABLE "Job" ADD CONSTRAINT "Job_postedById_fkey" FOREIGN KEY ("postedById") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE`
+      },
+      {
+        name: 'Job_businessId_fkey',
+        sql: `ALTER TABLE "Job" ADD CONSTRAINT "Job_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE`
       }
-    } catch (e) {
-      console.log('  businessId FK error:', e.message);
-    }
-
-    // Add indexes
-    const indexesToAdd = [
-      { name: 'Job_businessId_idx', column: 'businessId' },
-      { name: 'Job_postedById_idx', column: 'postedById' },
-      { name: 'Job_state_idx', column: 'state' },
-      { name: 'Job_district_idx', column: 'district' },
-      { name: 'Job_status_idx', column: 'status' },
-      { name: 'Job_jobType_idx', column: 'jobType' },
-      { name: 'Job_jobRole_idx', column: 'jobRole' },
     ];
 
-    for (const idx of indexesToAdd) {
+    for (const fk of foreignKeys) {
       try {
-        await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "${idx.name}" ON "Job"("${idx.column}")`);
+        const exists = await prisma.$queryRaw`
+          SELECT constraint_name 
+          FROM information_schema.table_constraints 
+          WHERE table_name = 'Job' AND constraint_name = ${fk.name}
+        `;
+        
+        if (exists.length === 0) {
+          await prisma.$executeRawUnsafe(fk.sql);
+          console.log(`  ✓ Added FK: ${fk.name}`);
+        }
       } catch (e) {
-        // Index already exists
+        console.log(`  FK ${fk.name} error:`, e.message);
       }
     }
 
-    console.log(`✅ Job table fixed! Added ${addedColumns.length} columns`);
+    console.log('✅ Job table fixed!');
 
     res.json({
       success: true,
       message: 'Job table fixed successfully',
-      addedColumns: addedColumns,
-      addedCount: addedColumns.length,
-      totalColumns: allJobColumns.length
+      columnsAdded: addedCount,
+      arrayColumnsFixed: arrayColumns
     });
   } catch (error) {
     console.error('Error fixing Job table:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fix Job table',
-      error: error.message,
-      stack: error.stack
+      error: error.message
     });
   }
 });
