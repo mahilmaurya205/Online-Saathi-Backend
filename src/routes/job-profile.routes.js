@@ -11,6 +11,7 @@ router.use(authMiddleware);
 // User routes
 router.get("/my-profile", jobProfileController.getJobProfile);
 router.post("/save", jobProfileController.saveJobProfile);
+router.patch("/update", jobProfileController.updateJobProfile);
 router.get("/can-view-jobs", jobProfileController.canViewJobs);
 
 // Get admin-configured data

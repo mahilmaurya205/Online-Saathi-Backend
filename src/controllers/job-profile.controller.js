@@ -249,6 +249,121 @@ const jobProfileController = {
     }
   },
 
+  // Update job profile (partial update - only provided fields)
+  updateJobProfile: async (req, res) => {
+    const { user_id: userId, tenant_id: tenantId } = req.user;
+    const updates = req.body;
+
+    try {
+      // Check if profile exists
+      const existingProfile = await prisma.userProfile.findUnique({
+        where: { userId }
+      });
+
+      if (!existingProfile) {
+        return res.status(404).json({
+          success: false,
+          message: "Job profile not found. Please create one first using POST /job-profile/save"
+        });
+      }
+
+      // Build update object with only provided fields
+      const updateData = {};
+      
+      if (updates.fullName !== undefined) updateData.fullName = updates.fullName;
+      if (updates.phoneNumber !== undefined) updateData.phoneNumber = updates.phoneNumber;
+      if (updates.email !== undefined) updateData.email = updates.email;
+      if (updates.maritalStatus !== undefined) {
+        if (!VALID_MARITAL_STATUS.includes(updates.maritalStatus)) {
+          return res.status(400).json({ success: false, message: "Invalid maritalStatus" });
+        }
+        updateData.maritalStatus = updates.maritalStatus;
+      }
+      if (updates.gender !== undefined) {
+        if (!VALID_GENDERS.includes(updates.gender)) {
+          return res.status(400).json({ success: false, message: "Invalid gender" });
+        }
+        updateData.gender = updates.gender;
+      }
+      if (updates.dateOfBirth !== undefined) updateData.dateOfBirth = new Date(updates.dateOfBirth);
+      if (updates.languages !== undefined) {
+        updateData.languages = Array.isArray(updates.languages) ? updates.languages : [updates.languages];
+      }
+      
+      // Current Address
+      if (updates.currentCountry !== undefined) updateData.currentCountry = updates.currentCountry;
+      if (updates.currentState !== undefined) updateData.currentState = updates.currentState;
+      if (updates.currentDistrict !== undefined) updateData.currentDistrict = updates.currentDistrict;
+      if (updates.currentAddress !== undefined) updateData.currentAddress = updates.currentAddress;
+      if (updates.currentPincode !== undefined) updateData.currentPincode = updates.currentPincode;
+      
+      // Permanent Address
+      if (updates.permanentCountry !== undefined) updateData.permanentCountry = updates.permanentCountry;
+      if (updates.permanentState !== undefined) updateData.permanentState = updates.permanentState;
+      if (updates.permanentDistrict !== undefined) updateData.permanentDistrict = updates.permanentDistrict;
+      if (updates.permanentAddress !== undefined) updateData.permanentAddress = updates.permanentAddress;
+      if (updates.permanentPincode !== undefined) updateData.permanentPincode = updates.permanentPincode;
+      
+      // Job Preferences
+      if (updates.jobType !== undefined) {
+        if (!VALID_JOB_TYPES.includes(updates.jobType)) {
+          return res.status(400).json({ success: false, message: "Invalid jobType" });
+        }
+        updateData.jobType = updates.jobType;
+      }
+      if (updates.jobRole !== undefined) updateData.jobRole = updates.jobRole;
+      if (updates.jobRoleCategory !== undefined) updateData.jobRoleCategory = updates.jobRoleCategory;
+      if (updates.skills !== undefined) {
+        updateData.skills = Array.isArray(updates.skills) ? updates.skills : [updates.skills];
+      }
+      if (updates.jobDescription !== undefined) updateData.jobDescription = updates.jobDescription;
+      
+      // Education
+      if (updates.education !== undefined) updateData.education = updates.education;
+      
+      // Work Experience
+      if (updates.totalExperience !== undefined) updateData.totalExperience = updates.totalExperience;
+      if (updates.workExperience !== undefined) updateData.workExperience = updates.workExperience;
+      
+      // Document
+      if (updates.documentType !== undefined) {
+        if (!VALID_DOCUMENT_TYPES.includes(updates.documentType)) {
+          return res.status(400).json({ success: false, message: "Invalid documentType" });
+        }
+        updateData.documentType = updates.documentType;
+      }
+      if (updates.documentFront !== undefined) updateData.documentFront = updates.documentFront;
+      if (updates.documentBack !== undefined) updateData.documentBack = updates.documentBack;
+      if (updates.documentNumber !== undefined) updateData.documentNumber = updates.documentNumber;
+
+      // Update the profile
+      const updatedProfile = await prisma.userProfile.update({
+        where: { userId },
+        data: updateData
+      });
+
+      await logAction({
+        userId,
+        action: "JOB_PROFILE_UPDATED",
+        tenantId,
+        metadata: { 
+          updatedFields: Object.keys(updateData),
+          profileStatus: updatedProfile.profileStatus
+        },
+      });
+
+      return res.json({
+        success: true,
+        message: "Job profile updated successfully",
+        profile: updatedProfile,
+        updatedFields: Object.keys(updateData)
+      });
+    } catch (err) {
+      console.error("Update job profile error:", err);
+      return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+  },
+
   // Get admin-configured job categories
   getJobCategories: async (req, res) => {
     const { tenant_id: tenantId } = req.user;
