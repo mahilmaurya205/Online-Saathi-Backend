@@ -19,10 +19,25 @@ router.post('/create-admin', async (req, res) => {
         message: 'No tenant found. Create tenant first.'
       });
     }
+    console.log('Tenant found:', tenant.id);
     
-    // Get roles
-    const adminRole = await prisma.role.findUnique({ where: { name: 'ADMIN' } });
-    const superAdminRole = await prisma.role.findUnique({ where: { name: 'SUPER_ADMIN' } });
+    // Get or create roles
+    let adminRole = await prisma.role.findUnique({ where: { name: 'ADMIN' } });
+    if (!adminRole) {
+      console.log('Creating ADMIN role...');
+      adminRole = await prisma.role.create({
+        data: { id: generateUuid(), name: 'ADMIN' }
+      });
+    }
+    
+    let superAdminRole = await prisma.role.findUnique({ where: { name: 'SUPER_ADMIN' } });
+    if (!superAdminRole) {
+      console.log('Creating SUPER_ADMIN role...');
+      superAdminRole = await prisma.role.create({
+        data: { id: generateUuid(), name: 'SUPER_ADMIN' }
+      });
+    }
+    console.log('Roles ready:', { admin: adminRole.id, superAdmin: superAdminRole.id });
     
     const results = { superAdmin: null, admin: null };
     
@@ -32,6 +47,7 @@ router.post('/create-admin', async (req, res) => {
     
     if (existingSuperAdmin) {
       results.superAdmin = { exists: true, mobile: superAdminMobile };
+      console.log('Super Admin already exists');
     } else {
       const hashedPassword = await bcrypt.hash('admin123', 10);
       const superAdmin = await prisma.user.create({
@@ -53,6 +69,7 @@ router.post('/create-admin', async (req, res) => {
         }
       });
       results.superAdmin = { created: true, mobile: superAdminMobile, id: superAdmin.id };
+      console.log('Super Admin created:', superAdmin.id);
     }
     
     // Create ADMIN if not exists
@@ -61,6 +78,7 @@ router.post('/create-admin', async (req, res) => {
     
     if (existingAdmin) {
       results.admin = { exists: true, mobile: adminMobile };
+      console.log('Admin already exists');
     } else {
       const hashedPassword = await bcrypt.hash('admin123', 10);
       const admin = await prisma.user.create({
@@ -82,6 +100,7 @@ router.post('/create-admin', async (req, res) => {
         }
       });
       results.admin = { created: true, mobile: adminMobile, id: admin.id };
+      console.log('Admin created:', admin.id);
     }
     
     res.status(201).json({
@@ -98,18 +117,17 @@ router.post('/create-admin', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to create admin users',
-      error: error.message
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });
 
 // Emergency endpoint to create default tenant
-// DELETE THIS AFTER USE - Security Risk!
 router.post('/create-default-tenant', async (req, res) => {
   try {
     console.log('Creating default tenant...');
     
-    // Check if tenant already exists
     const existing = await prisma.tenant.findFirst();
     
     if (existing) {
@@ -124,7 +142,6 @@ router.post('/create-default-tenant', async (req, res) => {
       });
     }
     
-    // Create default tenant
     const tenant = await prisma.tenant.create({
       data: {
         name: 'Online Saathi',
