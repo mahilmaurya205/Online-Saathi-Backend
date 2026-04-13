@@ -16,7 +16,7 @@ router.post('/init-locations', async (req, res) => {
     } catch (e) {
       console.log('❌ Country table does not exist. Creating tables...');
       
-      // Create tables using raw SQL
+      // Create tables using raw SQL - one command at a time
       await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "Country" (
           "id" TEXT NOT NULL,
@@ -28,8 +28,10 @@ router.post('/init-locations', async (req, res) => {
           "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" TIMESTAMP(3) NOT NULL,
           CONSTRAINT "Country_pkey" PRIMARY KEY ("id")
-        );
-        
+        )
+      `);
+      
+      await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "State" (
           "id" TEXT NOT NULL,
           "name" TEXT NOT NULL,
@@ -40,8 +42,10 @@ router.post('/init-locations', async (req, res) => {
           "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" TIMESTAMP(3) NOT NULL,
           CONSTRAINT "State_pkey" PRIMARY KEY ("id")
-        );
-        
+        )
+      `);
+      
+      await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "District" (
           "id" TEXT NOT NULL,
           "name" TEXT NOT NULL,
@@ -51,18 +55,20 @@ router.post('/init-locations', async (req, res) => {
           "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" TIMESTAMP(3) NOT NULL,
           CONSTRAINT "District_pkey" PRIMARY KEY ("id")
-        );
-        
-        CREATE UNIQUE INDEX IF NOT EXISTS "Country_name_key" ON "Country"("name");
-        CREATE UNIQUE INDEX IF NOT EXISTS "Country_code_key" ON "Country"("code");
-        CREATE UNIQUE INDEX IF NOT EXISTS "State_name_countryId_key" ON "State"("name", "countryId");
-        CREATE INDEX IF NOT EXISTS "State_countryId_idx" ON "State"("countryId");
-        CREATE UNIQUE INDEX IF NOT EXISTS "District_name_stateId_key" ON "District"("name", "stateId");
-        CREATE INDEX IF NOT EXISTS "District_stateId_idx" ON "District"("stateId");
-        
-        ALTER TABLE "State" ADD CONSTRAINT "State_countryId_fkey" FOREIGN KEY ("countryId") REFERENCES "Country"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-        ALTER TABLE "District" ADD CONSTRAINT "District_stateId_fkey" FOREIGN KEY ("stateId") REFERENCES "State"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+        )
       `);
+      
+      // Create indexes
+      await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "Country_name_key" ON "Country"("name")`);
+      await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "Country_code_key" ON "Country"("code")`);
+      await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "State_name_countryId_key" ON "State"("name", "countryId")`);
+      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "State_countryId_idx" ON "State"("countryId")`);
+      await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "District_name_stateId_key" ON "District"("name", "stateId")`);
+      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "District_stateId_idx" ON "District"("stateId")`);
+      
+      // Add foreign keys
+      await prisma.$executeRawUnsafe(`ALTER TABLE "State" ADD CONSTRAINT "State_countryId_fkey" FOREIGN KEY ("countryId") REFERENCES "Country"("id") ON DELETE CASCADE ON UPDATE CASCADE`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "District" ADD CONSTRAINT "District_stateId_fkey" FOREIGN KEY ("stateId") REFERENCES "State"("id") ON DELETE CASCADE ON UPDATE CASCADE`);
       
       console.log('✅ Tables created successfully');
     }
