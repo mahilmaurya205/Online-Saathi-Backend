@@ -36,6 +36,51 @@ model Tenant {
   pricingSettings PricingSetting[]
 }
 
+// Location Models for Country-State-District hierarchy
+model Country {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  code        String   @unique // ISO country code (e.g., IN, US)
+  phoneCode   String   // e.g., +91, +1
+  isActive    Boolean  @default(true)
+  statesCount Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  states      State[]
+}
+
+model State {
+  id          String   @id @default(uuid())
+  name        String
+  code        String   // State code
+  countryId   String
+  country     Country  @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  isActive    Boolean  @default(true)
+  districtsCount Int   @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  districts   District[]
+  
+  @@unique([name, countryId])
+  @@index([countryId])
+}
+
+model District {
+  id        String   @id @default(uuid())
+  name      String
+  code      String?  // District code (optional)
+  stateId   String
+  state     State    @relation(fields: [stateId], references: [id], onDelete: Cascade)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([name, stateId])
+  @@index([stateId])
+}
+
 enum Gender {
   MALE
   FEMALE
