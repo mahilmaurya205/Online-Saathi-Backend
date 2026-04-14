@@ -296,12 +296,15 @@ const jobsController = {
           job: {
             select: {
               id: true,
-              title: true,
-              location: true,
-              city: true,
-              salaryMin: true,
-              salaryMax: true,
-              employmentType: true,
+              jobRole: true,
+              jobDescription: true,
+              fullAddress: true,
+              district: true,
+              state: true,
+              offeredAmount: true,
+              jobType: true,
+              openings: true,
+              status: true,
               business: {
                 select: {
                   companyName: true,
